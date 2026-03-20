@@ -1,21 +1,12 @@
-"""Algorithms package grouping all bandit algorithm implementations."""
+"""Algorithms package grouping all streaming bandit algorithm implementations."""
 
-from .ACC_UCB import ACCUCB
-from .CC_MAB import CCMAB
-from .CoCoMaMa import CoCoMaMa
-from .Neural_CoCoMaMa import Neural_CoCoMaMa
-from .benchmark_algo import Benchmark
-from .random_algo import Random
-from .neural_mab import NeuralMAB
+from .streaming_base import StreamingRandom, StreamingBenchmark
+from .streaming_cocoma import StreamingCoCoMaMa
+from .streaming_neural_cocomama import StreamingNeuralCoCoMaMa
 
 __all__ = [
-    "ACCUCB",
-    "CCMAB",
-    "CoCoMaMa",
-    "Neural_CoCoMaMa",
-    "Benchmark",
-    "Random",
-    "NeuralMAB",
+    "StreamingRandom",
+    "StreamingBenchmark",
+    "StreamingCoCoMaMa",
+    "StreamingNeuralCoCoMaMa",
 ]
-
-

@@ -25,12 +25,14 @@ def plot_leaf_node_boxplots(budget, parallel_results, results_dir):
     all_counts_data = {point: [] for point, _, _, _, _ in completion_points}
     all_rewards_data = {point: [] for point, _, _, _, _ in completion_points}
 
+    metrics_key = 'streaming_cocoma_metrics'
+
     for entry in parallel_results:
         for point_name, leaves_key, counts_key, variances_key, rewards_key in completion_points:
-            leaves = entry['neural_cocoma_metrics'][leaves_key]
-            leaf_counts = entry['neural_cocoma_metrics'][counts_key]
-            m2_dict = entry['neural_cocoma_metrics'][variances_key]
-            avg_rewards = entry['neural_cocoma_metrics'][rewards_key]
+            leaves = entry[metrics_key][leaves_key]
+            leaf_counts = entry[metrics_key][counts_key]
+            m2_dict = entry[metrics_key][variances_key]
+            avg_rewards = entry[metrics_key][rewards_key]
 
             node_variances = []
             node_counts = []
@@ -71,7 +73,7 @@ def plot_leaf_node_boxplots(budget, parallel_results, results_dir):
         for j, (point_name, leaves_key, _, _, _) in enumerate(completion_points):
             all_leaves = set()
             for entry in parallel_results:
-                all_leaves.update(entry['cocomama_metrics'][leaves_key])
+                all_leaves.update(entry[metrics_key][leaves_key])
             num_leaves = len(all_leaves)
             ax.text(j+1, ax.get_ylim()[0], f'#leaves: {num_leaves}',
                     horizontalalignment='center', verticalalignment='top')
@@ -89,5 +91,3 @@ def plot_additional_metrics(processed_data, budgets, results_dir):
         budget_data = processed_data[budget]
         current_parallel_results = budget_data['parallel_results']
         plot_leaf_node_boxplots(budget, current_parallel_results, results_dir)
-
-

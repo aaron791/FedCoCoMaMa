@@ -1,11 +1,7 @@
-# Configuration for streaming contextual bandit experiments
-# This config is optimized for streaming algorithms
+# Configuration for streaming contextual bandit experiments on SPROUT dataset
 
 # Problem model configuration
-PROBLEM_MODEL_TYPE: streaming_sprout  # Use SPROUT streaming dataset
-use_streaming_algorithms: true
-use_saved_data: false
-use_generated_workers_in_paper: false
+PROBLEM_MODEL_TYPE: streaming_sprout
 only_redo_plots: false
 plot: true
 
@@ -30,6 +26,7 @@ v2: 1
 rho: 0.9
 N: 2
 theta: 10.0  # multiplier for variance threshold in CoCoMaMa
+hidden_dim: 64  # hidden dimension for Neural CoCoMaMa
 
 # Performance configuration
 num_threads_to_use: 10
@@ -37,6 +34,3 @@ num_threads_to_use: 10
 # Dataset configuration
 streaming_dataset_path: "datasets/sprout_streaming_30000.arrow"
 create_dataset_if_missing: true
-
-# Dataset paths for synthetic generation (if needed)
-sprout_streaming_path: "datasets/sprout_streaming_30000.arrow"
