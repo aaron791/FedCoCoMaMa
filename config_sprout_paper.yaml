@@ -1,5 +1,7 @@
 # Configuration for streaming contextual bandit experiments on SPROUT dataset
 
+config_type: single_router
+
 # Problem model configuration
 PROBLEM_MODEL_TYPE: streaming_sprout
 only_redo_plots: false
@@ -18,7 +20,7 @@ embedding_config:
 num_times_to_run: 10
 num_rounds: 30000
 num_std_to_show: 5
-budgets: [1, 2, 3, 4]
+budgets: [2, 3]
 
 # Algorithm parameters
 v1: 2.2360679775  # sqrt(5)

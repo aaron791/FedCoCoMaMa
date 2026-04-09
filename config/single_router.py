@@ -1,12 +1,10 @@
-"""Strict single-router configuration schema and loader."""
+"""Strict single-router configuration schema."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Literal
 
-import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class EmbeddingConfig(BaseModel):
@@ -31,6 +29,7 @@ class SingleRouterConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    config_type: Literal["single_router"]
     PROBLEM_MODEL_TYPE: Literal["streaming_sprout"]
     only_redo_plots: bool
     plot: bool
@@ -77,25 +76,3 @@ class SingleRouterConfig(BaseModel):
         if any(budget <= 0 for budget in value):
             raise ValueError("all budgets must be > 0")
         return value
-
-
-def load_single_router_config(config_file: str | Path) -> SingleRouterConfig:
-    """Load and strictly validate a single-router YAML configuration."""
-
-    config_path = Path(config_file)
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    try:
-        with config_path.open("r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle)
-    except yaml.YAMLError as exc:
-
-        raise ValueError(f"Error parsing YAML config file: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError("Config file must contain a YAML mapping/object at the root.")
-
-    try:
-        return SingleRouterConfig.model_validate(data)
-    except ValidationError as exc:
-        raise ValueError(f"Invalid config file '{config_path}':\n{exc}") from exc
