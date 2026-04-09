@@ -9,13 +9,11 @@ import psutil
 import os
 import argparse
 import yaml
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from collections import Counter
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
@@ -94,188 +92,6 @@ def save_config_to_file(config, filename=None):
     except Exception as e:
         print(f"Error saving configuration: {e}")
         return None
-
-def get_default_config():
-    """Get default configuration as fallback."""
-    return {
-        "PROBLEM_MODEL_TYPE": "streaming_sprout",
-        "only_redo_plots": False,
-        "RESULTS_DIR": "results/test_2_streaming_384_dim",
-        "embedding_config": {
-            'model_name': 'all-MiniLM-L6-v2',
-            'dimensions': 384,
-            'suffix': '_all-MiniLM-L6-v2_384-dim'
-        },
-        "num_times_to_run": 3,
-        "num_rounds": 100,
-        "num_std_to_show": 5,
-        "budgets": [1, 2, 3, 4],
-        "v1": np.sqrt(5),
-        "v2": 1,
-        "rho": 0.9,
-        "N": 2,
-        "num_threads_to_use": 10
-    }
-
-def get_user_input(prompt, input_type=str, default=None, choices=None, allow_empty=False):
-    """Get user input with validation and default values."""
-    while True:
-        if choices:
-            choice_str = f" ({'/'.join(choices)})" if choices else ""
-            default_str = f" [default: {default}]" if default is not None else ""
-            full_prompt = f"{prompt}{choice_str}{default_str}: "
-        else:
-            default_str = f" [default: {default}]" if default is not None else ""
-            full_prompt = f"{prompt}{default_str}: "
-        
-        try:
-            user_input = input(full_prompt).strip()
-            
-            if not user_input:
-                if default is not None:
-                    return default
-                elif allow_empty:
-                    return None
-                else:
-                    print("This field is required. Please enter a value.")
-                    continue
-            
-            if input_type == int:
-                result = int(user_input)
-            elif input_type == float:
-                result = float(user_input)
-            elif input_type == bool:
-                result = user_input.lower() in ['true', 'yes', 'y', '1', 'on']
-            elif input_type == list:
-                result = [item.strip() for item in user_input.split(',')]
-            else:
-                result = user_input
-            
-            if choices and result not in choices:
-                print(f"Invalid choice. Please choose from: {', '.join(choices)}")
-                continue
-            
-            return result
-            
-        except ValueError:
-            print(f"Invalid input. Please enter a valid {input_type.__name__}.")
-            continue
-
-def interactive_configuration():
-    """Interactive configuration setup."""
-    print("\n" + "="*60)
-    print("INTERACTIVE CONFIGURATION SETUP")
-    print("="*60)
-    print("Configure your streaming contextual bandit experiment.")
-    print("Press Enter to use default values shown in brackets.\n")
-    
-    config = {}
-    
-    config["PROBLEM_MODEL_TYPE"] = "streaming_sprout"
-    
-    print("EXPERIMENT PARAMETERS")
-    print("-" * 25)
-    config["num_rounds"] = get_user_input(
-        "Number of rounds", 
-        input_type=int, 
-        default=300
-    )
-    
-    config["num_times_to_run"] = get_user_input(
-        "Number of runs (for statistical significance)", 
-        input_type=int, 
-        default=5
-    )
-    
-    budget_input = get_user_input(
-        "Budgets to test (comma-separated)", 
-        input_type=list, 
-        default=["1", "2", "3", "4"]
-    )
-    config["budgets"] = [int(b) for b in budget_input]
-    
-    print("\nALGORITHM PARAMETERS")
-    print("-" * 25)
-    config["v1"] = get_user_input("V1 parameter", input_type=float, default=2.23606797749979)
-    config["v2"] = get_user_input("V2 parameter", input_type=float, default=1.0)
-    config["rho"] = get_user_input("Rho parameter", input_type=float, default=0.9)
-    config["N"] = get_user_input("N parameter", input_type=int, default=2)
-    
-    print("\nEMBEDDING CONFIGURATION")
-    print("-" * 25)
-    embedding_model = get_user_input("Embedding model name", default="all-MiniLM-L6-v2")
-    embedding_dimensions = get_user_input("Embedding dimensions", input_type=int, default=384)
-    
-    config["embedding_config"] = {
-        'model_name': embedding_model,
-        'dimensions': embedding_dimensions,
-        'suffix': f"_{embedding_model}_{embedding_dimensions}-dim"
-    }
-    
-    print("\nPERFORMANCE CONFIGURATION")
-    print("-" * 28)
-    config["num_threads_to_use"] = get_user_input(
-        "Number of threads (-1 for all available)", 
-        input_type=int, 
-        default=8
-    )
-    
-    print("\nOUTPUT CONFIGURATION")
-    print("-" * 22)
-    config["RESULTS_DIR"] = get_user_input(
-        "Results directory", 
-        default="results/interactive_experiment"
-    )
-    
-    config["streaming_dataset_path"] = get_user_input(
-        "SPROUT streaming dataset path", 
-        default="datasets/sprout_streaming_300.arrow"
-    )
-    
-    print("\nEXPERIMENT FLAGS")
-    print("-" * 18)
-    config["only_redo_plots"] = get_user_input(
-        "Only redo plots using existing results", 
-        input_type=bool, 
-        default=False
-    )
-    
-    config["plot"] = get_user_input(
-        "Generate plots after running experiments", 
-        input_type=bool, 
-        default=True
-    )
-    
-    print("\n" + "="*60)
-    print("CONFIGURATION COMPLETE")
-    print("="*60)
-    
-    save_config_flag = get_user_input(
-        "Save this configuration to a file for reproducibility", 
-        input_type=bool, 
-        default=True
-    )
-    
-    if save_config_flag:
-        custom_filename = get_user_input(
-            "Custom filename (leave empty for auto-generated)", 
-            allow_empty=True
-        )
-        
-        if custom_filename:
-            if not custom_filename.endswith('.yaml') and not custom_filename.endswith('.yml'):
-                custom_filename += '.yaml'
-            filename = f"configs/{custom_filename}"
-        else:
-            filename = None
-        
-        saved_file = save_config_to_file(config, filename)
-        if saved_file:
-            print(f"\nTo reuse this configuration, run:")
-            print(f"   python main_streaming.py --config_file {saved_file}")
-    
-    return config
-
 
 def get_memory_usage():
     """Get current memory usage in MB."""
@@ -405,19 +221,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Interactive mode (no arguments needed) - saves config automatically
-  python main_streaming.py
-  
-  # Use config file (no interaction)
+  # Use config file
   python main_streaming.py --config_file config.yaml
-  
+
   # Override config file with CLI and save result
   python main_streaming.py --config_file config.yaml --num_rounds 500 --save_config my_config.yaml
         """
     )
     
-    parser.add_argument("--config_file", type=str, default=None,
-                       help="Path to YAML configuration file. If not provided, uses interactive mode.")
+    parser.add_argument("--config_file", type=str, required=True,
+                       help="Path to YAML configuration file (required).")
     
     parser.add_argument("--streaming_dataset_path", type=str, default=None,
                        help="Path to streaming Arrow dataset")
@@ -466,42 +279,36 @@ Examples:
     
     args = parser.parse_args()
     
-    if args.config_file:
-        print(f"Loading configuration from: {args.config_file}")
-        config_file = load_config_file(args.config_file)
-        
-        cli_args = {
-            "streaming_dataset_path": args.streaming_dataset_path,
-            "RESULTS_DIR": args.results_dir,
-            "num_rounds": args.num_rounds,
-            "num_times_to_run": args.num_times_to_run,
-            "budgets": args.budgets,
-            "v1": args.v1,
-            "v2": args.v2,
-            "rho": args.rho,
-            "N": args.N,
-            "num_threads_to_use": args.num_threads_to_use,
-            "only_redo_plots": args.only_redo_plots if args.only_redo_plots else None,
-        }
-        
-        if args.embedding_model or args.embedding_dimensions:
-            embedding_config = config_file.get("embedding_config", {}).copy()
-            if args.embedding_model:
-                embedding_config["model_name"] = args.embedding_model
-            if args.embedding_dimensions:
-                embedding_config["dimensions"] = args.embedding_dimensions
-                embedding_config["suffix"] = f"_{embedding_config['model_name']}_{args.embedding_dimensions}-dim"
-            cli_args["embedding_config"] = embedding_config
-        
-        config = merge_configs(config_file, cli_args)
-        
-        if args.save_config:
-            save_config_to_file(config, args.save_config)
-        
-    else:
-        print("Starting interactive configuration mode...")
-        print("   (Use --config_file to skip interactive mode)")
-        config = interactive_configuration()
+    print(f"Loading configuration from: {args.config_file}")
+    config_file = load_config_file(args.config_file)
+
+    cli_args = {
+        "streaming_dataset_path": args.streaming_dataset_path,
+        "RESULTS_DIR": args.results_dir,
+        "num_rounds": args.num_rounds,
+        "num_times_to_run": args.num_times_to_run,
+        "budgets": args.budgets,
+        "v1": args.v1,
+        "v2": args.v2,
+        "rho": args.rho,
+        "N": args.N,
+        "num_threads_to_use": args.num_threads_to_use,
+        "only_redo_plots": args.only_redo_plots if args.only_redo_plots else None,
+    }
+
+    if args.embedding_model or args.embedding_dimensions:
+        embedding_config = config_file.get("embedding_config", {}).copy()
+        if args.embedding_model:
+            embedding_config["model_name"] = args.embedding_model
+        if args.embedding_dimensions:
+            embedding_config["dimensions"] = args.embedding_dimensions
+            embedding_config["suffix"] = f"_{embedding_config['model_name']}_{args.embedding_dimensions}-dim"
+        cli_args["embedding_config"] = embedding_config
+
+    config = merge_configs(config_file, cli_args)
+
+    if args.save_config:
+        save_config_to_file(config, args.save_config)
     
     print(f"Initial memory usage: {get_memory_usage():.2f} MB")
     
