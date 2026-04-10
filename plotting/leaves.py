@@ -1,57 +1,49 @@
 import matplotlib.pyplot as plt
 
+from .types import BudgetResult
+from .utils import downsample_for_errorbars
 
-def plot_all_average_leaves(processed_data, budgets, num_rounds, num_std_to_show, line_style_dict, algorithm_colors, results_dir="."):
-    """Create a 2x2 grid figure with average leaves plots for all budgets.
 
-    Parameters
-    ----------
-    processed_data : dict[int, dict]
-        Processed results per budget.
-    budgets : list[int]
-        Budgets to plot.
-    num_rounds : int
-        Number of rounds.
-    num_std_to_show : int
-        Downsampling factor to reduce errorbar clutter.
-    line_style_dict : dict[int, str]
-        Mapping from budget to line style.
-    algorithm_colors : dict[str, str]
-        Colors for algorithms.
-    """
-    plt.figure(figsize=(15, 12))
-    
-    num_plots = len(budgets)
+def _plot_single_average_leaves(ax, run: BudgetResult, num_std_to_show: int) -> None:
+    """Zeichnet die durchschnittliche Blattanzahl für einen BudgetResult auf eine Axes."""
+    for algo in run.algorithms:
+        if algo.avg_leaves is None:
+            continue
+        std = downsample_for_errorbars(algo.std_leaves, run.num_rounds, num_std_to_show)
+        ax.errorbar(
+            range(1, run.num_rounds + 1),
+            algo.avg_leaves,
+            yerr=std,
+            label=algo.label,
+            color=algo.color,
+            capsize=2,
+            linestyle="-",
+            linewidth=2,
+        )
+    ax.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+    ax.set_xlabel("Arriving task $(t)$")
+    ax.set_ylabel("Average leaves up to $t$")
+    ax.set_title(f"Average Leaves (b = {run.budget})")
+    ax.grid(True, alpha=0.3)
+
+
+def plot_all_average_leaves(
+    runs: list[BudgetResult],
+    num_std_to_show: int,
+    results_dir: str = ".",
+) -> None:
+    """Erstellt ein Grid mit Average-Leaves-Plots für alle BudgetResults."""
+    num_plots = len(runs)
     rows = int(num_plots / 2 + (num_plots % 2))
     cols = 2
+    plt.figure(figsize=(15, 12))
 
-    for i, budget in enumerate(budgets):
+    for i, run in enumerate(runs):
         ax = plt.subplot(rows, cols, i + 1)
-        budget_data = processed_data[budget]
-        omv_avg = budget_data['cocomama_avg_leaves']
-        neural_cocoma_avg = budget_data['neural_cocoma_avg_leaves']
-        omv_std = budget_data['cocomama_std_leaves']
-        neural_cocoma_std = budget_data['neural_cocoma_std_leaves']
-
-        for j in range(len(omv_std)):
-            if j == 0 or j % int(num_rounds / num_std_to_show) != 0 and j != len(omv_std) - 1:
-                omv_std[j] = neural_cocoma_std[j] = None
-
-        ax.errorbar(range(1, num_rounds + 1), omv_avg, yerr=omv_std,
-                   label=f"CoCoMaMa (ours)", capsize=2, color=algorithm_colors['CoCoMaMa'],
-                   linestyle='-', linewidth=2)
-        ax.errorbar(range(1, num_rounds + 1), neural_cocoma_avg, yerr=neural_cocoma_std,
-                   label=f"Neural-CoCoMaMa (ours)", capsize=2, color=algorithm_colors['Neural-CoCoMaMa (ours)'],
-                   linestyle='-', linewidth=2)
-
-        ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-        ax.set_xlabel("Arriving task $(t)$")
-        ax.set_ylabel("Average leaves up to $t$")
-        ax.set_title(f'Average Leaves (b = {budget})')
+        _plot_single_average_leaves(ax, run, num_std_to_show)
         if i == 0:
             ax.legend()
-        ax.grid(True, alpha=0.3)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(f"{results_dir}/avg_leaves_all_budgets.pdf", bbox_inches='tight', pad_inches=0.01)
+    plt.savefig(f"{results_dir}/avg_leaves_all_budgets.pdf", bbox_inches="tight", pad_inches=0.01)
     plt.close()

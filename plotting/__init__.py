@@ -1,6 +1,8 @@
 """Plotting package containing modular plotting utilities for the project.
 
 Modules:
+- types: Gemeinsame Datenstrukturen (AlgorithmResult, BudgetResult).
+- utils: Hilfsfunktionen (z.B. Errorbar-Downsampling).
 - heatmap: Heatmap of selected agents.
 - leaves: Average leaves plots across budgets.
 - regret: Cumulative regret plots across budgets.
@@ -13,11 +15,14 @@ configuration as arguments, avoiding reliance on global state.
 
 from .heatmap import plot_selected_agents
 from .leaves import plot_all_average_leaves
+from .metrics import plot_additional_metrics
 from .regret import plot_all_cumulative_regret
 from .reward import plot_all_average_reward
-from .metrics import plot_additional_metrics
+from .types import AlgorithmResult, BudgetResult
 
 __all__ = [
+    "AlgorithmResult",
+    "BudgetResult",
     "plot_selected_agents",
     "plot_all_average_leaves",
     "plot_all_cumulative_regret",

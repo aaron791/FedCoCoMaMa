@@ -76,3 +76,16 @@ class SingleRouterConfig(BaseModel):
         if any(budget <= 0 for budget in value):
             raise ValueError("all budgets must be > 0")
         return value
+
+    def print_summary(self) -> None:
+        """Gibt eine übersichtliche Zusammenfassung der Konfiguration aus."""
+        print("\n" + "=" * 60)
+        print("CONFIGURATION SUMMARY")
+        print("=" * 60)
+        print(f"Number of rounds:     {self.num_rounds}")
+        print(f"Number of runs:       {self.num_times_to_run}")
+        print(f"Budgets:              {self.budgets}")
+        print(f"Results directory:    {self.RESULTS_DIR}")
+        print(f"Embedding model:      {self.embedding_config.model_name}")
+        print(f"Embedding dimensions: {self.embedding_config.dimensions}")
+        print("=" * 60 + "\n")

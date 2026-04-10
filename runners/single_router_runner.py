@@ -20,23 +20,24 @@ from algorithms.streaming_neural_cocomama import StreamingNeuralCoCoMaMa
 from config.single_router import SingleRouterConfig
 from Hyperrectangle import Hyperrectangle
 from plotting import (
+    AlgorithmResult,
+    BudgetResult,
     plot_all_average_leaves,
     plot_all_average_reward,
     plot_all_cumulative_regret,
 )
+from runners.trial_result import TrialResult
 from streaming_dataset import StreamingProblemModel
 
 sns.set(style="whitegrid")
 
-# Algorithm colors for distinct visualization
-algorithm_colors = {
-    "CoCoMaMa": "green",
-    "Neural-CoCoMaMa (ours)": "cyan",
-    "Random": "purple",
-    "Oracle": "black",
+# Anzeigeeinstellungen pro Algorithmus: Label und Farbe für Plots
+ALGORITHM_DISPLAY = {
+    "cocomama":      {"label": "CoCoMaMa (ours)",        "color": "green"},
+    "neural_cocoma": {"label": "Neural-CoCoMaMa (ours)", "color": "cyan"},
+    "random":        {"label": "Random",                  "color": "purple"},
+    "benchmark":     {"label": "Oracle",                  "color": "black"},
 }
-
-line_style_dict = {1: "--", 2: "-", 3: "-.", 4: ":"}
 
 
 class SingleRouterRunner:
@@ -46,59 +47,23 @@ class SingleRouterRunner:
         print(f"Initial memory usage: {get_memory_usage():.2f} MB")
 
         os.makedirs(config.RESULTS_DIR, exist_ok=True)
-
-        print("\n" + "=" * 60)
-        print("CONFIGURATION SUMMARY")
-        print("=" * 60)
-        print(f"Number of rounds: {config.num_rounds}")
-        print(f"Number of runs: {config.num_times_to_run}")
-        print(f"Budgets: {config.budgets}")
-        print(f"Results directory: {config.RESULTS_DIR}")
-        print(f"Embedding model: {config.embedding_config.model_name}")
-        print(f"Embedding dimensions: {config.embedding_config.dimensions}")
-        print("=" * 60 + "\n")
+        config.print_summary()
 
         if not config.only_redo_plots:
             print("Ensuring datasets are created...")
             create_dataset_if_needed(config)
 
             for budget in config.budgets:
-                run_simulation(budget, config)
+                run_trials_for_budget(budget, config)
 
         if config.plot or config.only_redo_plots:
             print("Loading and processing streaming results for plotting...")
-            processed_data = load_and_process_streaming_results(config)
-
-            num_std_to_show = config.num_std_to_show
+            runs = load_and_process_streaming_results(config)
 
             print("Creating streaming algorithm plots...")
-            num_rounds = len(processed_data[config.budgets[0]]["cocomama_avg_reward"])
-            results_dir = config.RESULTS_DIR
-            plot_all_cumulative_regret(
-                processed_data,
-                config.budgets,
-                num_rounds,
-                num_std_to_show,
-                algorithm_colors,
-                results_dir,
-            )
-            plot_all_average_reward(
-                processed_data,
-                config.budgets,
-                num_rounds,
-                num_std_to_show,
-                algorithm_colors,
-                results_dir,
-            )
-            plot_all_average_leaves(
-                processed_data,
-                config.budgets,
-                num_rounds,
-                num_std_to_show,
-                line_style_dict,
-                algorithm_colors,
-                results_dir,
-            )
+            plot_all_cumulative_regret(runs, config.num_std_to_show, config.RESULTS_DIR)
+            plot_all_average_reward(runs, config.num_std_to_show, config.RESULTS_DIR)
+            plot_all_average_leaves(runs, config.num_std_to_show, config.RESULTS_DIR)
 
             plt.show()
             print("Streaming plots created successfully!")
@@ -106,107 +71,208 @@ class SingleRouterRunner:
         print("Experiment completed!")
 
 
-def get_memory_usage() -> float:
-    """Get current memory usage in MB."""
-    process = psutil.Process(os.getpid())
-    return process.memory_info().rss / 1024 / 1024
+# ---------------------------------------------------------------------------
+# Trial execution
+# ---------------------------------------------------------------------------
+
+def run_trial(trial_index: int, budget: int, config: SingleRouterConfig) -> TrialResult:
+    """Führt einen Trial mit allen Algorithmen aus und gibt typisierte Ergebnisse zurück."""
+    root_context = _build_root_context(config.embedding_config.dimensions)
+    algos = _create_algorithms(budget, config, root_context)
+
+    print(f"Running trial {trial_index} (budget={budget})...")
+
+    random_reward, random_regret, random_played = algos["random"].run_algorithm()
+    bench_reward, bench_regret, bench_played, best_arms = algos["benchmark"].run_algorithm()
+    (cocoma_reward, cocoma_regret, cocoma_played,
+     cocoma_leaves, cocoma_metrics) = algos["cocomama"].run_algorithm()
+    (neural_reward, neural_regret, neural_played,
+     neural_leaves, neural_metrics) = algos["neural_cocoma"].run_algorithm()
+
+    return TrialResult(
+        random_reward=random_reward,
+        random_regret=random_regret,
+        bench_reward=bench_reward,
+        cocoma_reward=cocoma_reward,
+        cocoma_regret=cocoma_regret,
+        cocoma_leaves=cocoma_leaves,
+        cocoma_metrics=cocoma_metrics,
+        neural_cocoma_reward=neural_reward,
+        neural_cocoma_regret=neural_regret,
+        neural_cocoma_leaves=neural_leaves,
+        neural_cocoma_metrics=neural_metrics,
+        bench_played_arms=bench_played,
+        uniquely_best_arms=best_arms,
+        cocoma_played_arms=cocoma_played,
+        neural_cocoma_played_arms=neural_played,
+    )
 
 
-def run_one_try(num_run: int, budget: int, config: SingleRouterConfig) -> dict:
-    """Run one trial with all streaming algorithms."""
-    problem_model_random = get_problem_model(config)
-    problem_model_benchmark = get_problem_model(config)
-    problem_model_cocoma = get_problem_model(config)
-    problem_model_neural_cocoma = get_problem_model(config)
-
-    print(f"Problem model size: {problem_model_random.get_size()}")
-
-    embedding_dimensions = config.embedding_config.dimensions
-    root_context = Hyperrectangle(
+def _build_root_context(embedding_dimensions: int) -> Hyperrectangle:
+    """Erstellt den initialen Kontext-Hyperrechteck für Baum-Algorithmen."""
+    return Hyperrectangle(
         np.ones(embedding_dimensions * 2) * 2,
         np.zeros(embedding_dimensions * 2),
     )
 
-    streaming_random = StreamingRandom(problem_model_random, budget)
-    streaming_benchmark = StreamingBenchmark(problem_model_benchmark, budget)
-    streaming_cocoma = StreamingCoCoMaMa(
-        problem_model_cocoma,
-        config.v1,
-        config.v2,
-        config.N,
-        config.rho,
-        budget,
-        root_context,
-        config.theta,
-    )
-    streaming_neural_cocoma = StreamingNeuralCoCoMaMa(
-        problem_model_neural_cocoma,
-        config.v1,
-        config.v2,
-        config.N,
-        config.rho,
-        budget,
-        root_context,
-        embedding_dimensions * 2,
-        hidden_dim=config.hidden_dim,
-    )
 
-    print("Running Streaming Random...")
-    (
-        streaming_random_reward,
-        streaming_random_regret,
-        streaming_random_played_arms_arr,
-    ) = streaming_random.run_algorithm()
-
-    print("Running Streaming Benchmark...")
-    (
-        streaming_bench_reward,
-        streaming_bench_regret,
-        streaming_bench_played_arms_arr,
-        streaming_uniquely_best_arms_arr,
-    ) = streaming_benchmark.run_algorithm()
-
-    print("Running Streaming CoCoMaMa...")
-    (
-        streaming_cocoma_reward,
-        streaming_cocoma_regret,
-        streaming_cocoma_played_arms_arr,
-        streaming_cocoma_leaves_count_arr,
-        streaming_cocoma_metrics,
-    ) = streaming_cocoma.run_algorithm()
-
-    print("Running Streaming Neural CoCoMaMa...")
-    (
-        streaming_neural_cocoma_reward,
-        streaming_neural_cocoma_regret,
-        streaming_neural_cocoma_played_arms_arr,
-        streaming_neural_cocoma_leaves_count_arr,
-        streaming_neural_cocoma_metrics,
-    ) = streaming_neural_cocoma.run_algorithm()
-
-    print(f"Run done: {num_run}")
-
+def _create_algorithms(
+    budget: int, config: SingleRouterConfig, root_context: Hyperrectangle
+) -> dict:
+    """Erstellt alle Algorithmen mit ihren jeweiligen Problem-Modellen."""
+    embedding_dim = config.embedding_config.dimensions
     return {
-        "streaming_bench_reward": streaming_bench_reward,
-        "streaming_random_reward": streaming_random_reward,
-        "streaming_random_regret": streaming_random_regret,
-        "streaming_cocoma_reward": streaming_cocoma_reward,
-        "streaming_cocoma_regret": streaming_cocoma_regret,
-        "streaming_neural_cocoma_reward": streaming_neural_cocoma_reward,
-        "streaming_neural_cocoma_regret": streaming_neural_cocoma_regret,
-        "streaming_bench_played_arms_arr": streaming_bench_played_arms_arr,
-        "streaming_uniquely_best_arms_arr": streaming_uniquely_best_arms_arr,
-        "streaming_cocoma_played_arms_arr": streaming_cocoma_played_arms_arr,
-        "streaming_neural_cocoma_played_arms_arr": streaming_neural_cocoma_played_arms_arr,
-        "streaming_cocoma_leaves_count_arr": streaming_cocoma_leaves_count_arr,
-        "streaming_neural_cocoma_leaves_count_arr": streaming_neural_cocoma_leaves_count_arr,
-        "streaming_cocoma_metrics": streaming_cocoma_metrics,
-        "streaming_neural_cocoma_metrics": streaming_neural_cocoma_metrics,
+        "random": StreamingRandom(
+            get_problem_model(config), budget
+        ),
+        "benchmark": StreamingBenchmark(
+            get_problem_model(config), budget
+        ),
+        "cocomama": StreamingCoCoMaMa(
+            get_problem_model(config),
+            config.v1, config.v2, config.N, config.rho,
+            budget, root_context, config.theta,
+        ),
+        "neural_cocoma": StreamingNeuralCoCoMaMa(
+            get_problem_model(config),
+            config.v1, config.v2, config.N, config.rho,
+            budget, root_context,
+            embedding_dim * 2, hidden_dim=config.hidden_dim,
+        ),
     }
 
 
+# ---------------------------------------------------------------------------
+# Result loading & aggregation
+# ---------------------------------------------------------------------------
+
+def load_and_process_streaming_results(config: SingleRouterConfig) -> list[BudgetResult]:
+    """Lädt und verarbeitet Ergebnisse für alle Budgets. Gibt eine Liste von BudgetResult zurück."""
+    results_dir = config.RESULTS_DIR
+    budgets = config.budgets
+
+    first_results = _load_results(results_dir, budgets[0])
+    num_rounds = len(first_results[0].random_reward)
+    print(f"Detected {num_rounds} rounds in the data")
+
+    return [
+        _aggregate_trials(budget, num_rounds, _load_results(results_dir, budget))
+        for budget in budgets
+    ]
+
+
+def _load_results(results_dir: str, budget: int) -> list[TrialResult]:
+    """Lädt die Pickle-Datei für ein bestimmtes Budget."""
+    path = f"{results_dir}/parallel_results_budget_{budget}_streaming"
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+
+def _aggregate_trials(
+    budget: int, num_rounds: int, trial_results: list[TrialResult]
+) -> BudgetResult:
+    """Aggregiert eine Liste von TrialResults zu einem BudgetResult (Mittelwert + Std)."""
+    num_runs = len(trial_results)
+
+    random_reward       = np.zeros((num_runs, num_rounds))
+    bench_reward        = np.zeros((num_runs, num_rounds))
+    cocoma_reward       = np.zeros((num_runs, num_rounds))
+    neural_cocoma_reward= np.zeros((num_runs, num_rounds))
+    random_regret       = np.zeros((num_runs, num_rounds))
+    cocoma_regret       = np.zeros((num_runs, num_rounds))
+    neural_cocoma_regret= np.zeros((num_runs, num_rounds))
+    cocoma_leaves       = np.zeros((num_runs, num_rounds))
+    neural_cocoma_leaves= np.zeros((num_runs, num_rounds))
+
+    for i, result in enumerate(trial_results):
+        random_reward[i]        = _rolling_mean(result.random_reward)
+        bench_reward[i]         = _rolling_mean(result.bench_reward)
+        cocoma_reward[i]        = _rolling_mean(result.cocoma_reward)
+        neural_cocoma_reward[i] = _rolling_mean(result.neural_cocoma_reward)
+
+        random_regret[i]        = np.cumsum(result.random_regret)
+        cocoma_regret[i]        = np.cumsum(result.cocoma_regret)
+        neural_cocoma_regret[i] = np.cumsum(result.neural_cocoma_regret)
+
+        cocoma_leaves[i]        = np.array(result.cocoma_leaves)
+        neural_cocoma_leaves[i] = np.array(result.neural_cocoma_leaves)
+
+    return BudgetResult(
+        budget=budget,
+        num_rounds=num_rounds,
+        algorithms=[
+            AlgorithmResult(
+                **ALGORITHM_DISPLAY["cocomama"],
+                avg_reward=np.mean(cocoma_reward, axis=0),
+                std_reward=np.std(cocoma_reward, axis=0),
+                avg_regret=np.mean(cocoma_regret, axis=0),
+                std_regret=np.std(cocoma_regret, axis=0),
+                avg_leaves=np.mean(cocoma_leaves, axis=0),
+                std_leaves=np.std(cocoma_leaves, axis=0),
+            ),
+            AlgorithmResult(
+                **ALGORITHM_DISPLAY["neural_cocoma"],
+                avg_reward=np.mean(neural_cocoma_reward, axis=0),
+                std_reward=np.std(neural_cocoma_reward, axis=0),
+                avg_regret=np.mean(neural_cocoma_regret, axis=0),
+                std_regret=np.std(neural_cocoma_regret, axis=0),
+                avg_leaves=np.mean(neural_cocoma_leaves, axis=0),
+                std_leaves=np.std(neural_cocoma_leaves, axis=0),
+            ),
+            AlgorithmResult(
+                **ALGORITHM_DISPLAY["random"],
+                avg_reward=np.mean(random_reward, axis=0),
+                std_reward=np.std(random_reward, axis=0),
+                avg_regret=np.mean(random_regret, axis=0),
+                std_regret=np.std(random_regret, axis=0),
+            ),
+            AlgorithmResult(
+                **ALGORITHM_DISPLAY["benchmark"],
+                avg_reward=np.mean(bench_reward, axis=0),
+                std_reward=np.std(bench_reward, axis=0),
+                avg_regret=np.zeros(num_rounds),
+                std_regret=np.zeros(num_rounds),
+            ),
+        ],
+    )
+
+
+def _rolling_mean(values: list[float]) -> np.ndarray:
+    """Berechnet den rollenden Durchschnitt (expanding mean) einer Zeitreihe."""
+    return pd.Series(values).expanding().mean().values
+ 
+
+# ---------------------------------------------------------------------------
+# Infrastructure
+# ---------------------------------------------------------------------------
+
+def run_trials_for_budget(budget: int, config: SingleRouterConfig) -> list[TrialResult]:
+    """Führt alle parallelen Trials für ein Budget aus und speichert die Ergebnisse."""
+    print(f"Doing budget {budget}...")
+    print(f"Memory usage before parallel processing: {get_memory_usage():.2f} MB")
+
+    num_threads = (
+        int(multiprocessing.cpu_count() - 1)
+        if config.num_threads_to_use == -1
+        else config.num_threads_to_use
+    )
+    print(f"Running on {num_threads} threads")
+
+    results = Parallel(n_jobs=num_threads)(
+        delayed(run_trial)(i, budget, config) for i in tqdm(range(config.num_times_to_run))
+    )
+
+    print(f"Memory usage after parallel processing: {get_memory_usage():.2f} MB")
+
+    results_file = f"{config.RESULTS_DIR}/parallel_results_budget_{budget}_streaming"
+    with open(results_file, "wb") as f:
+        pickle.dump(results, f, pickle.HIGHEST_PROTOCOL)
+
+    return results
+
+
 def create_dataset_if_needed(config: SingleRouterConfig) -> None:
-    """Create SPROUT dataset if it does not exist and config allows creation."""
+    """Erstellt das SPROUT-Dataset falls es nicht existiert."""
     from create_streaming_datasets import create_sprout_streaming_dataset
 
     os.makedirs("datasets", exist_ok=True)
@@ -232,7 +298,7 @@ def create_dataset_if_needed(config: SingleRouterConfig) -> None:
 
 
 def get_problem_model(config: SingleRouterConfig) -> StreamingProblemModel:
-    """Create and return the streaming problem model."""
+    """Erstellt und gibt das Streaming Problem Model zurück."""
     create_dataset_if_needed(config)
 
     embedding_dimensions = config.embedding_config.dimensions
@@ -245,103 +311,9 @@ def get_problem_model(config: SingleRouterConfig) -> StreamingProblemModel:
     )
 
 
-def run_simulation(budget: int, config: SingleRouterConfig) -> list[dict]:
-    """Run the simulation for a given budget."""
-    print(f"Doing budget {budget}...")
-    print(f"Memory usage before parallel processing: {get_memory_usage():.2f} MB")
-
-    if config.num_threads_to_use == -1:
-        num_threads = int(multiprocessing.cpu_count() - 1)
-    else:
-        num_threads = config.num_threads_to_use
-    print(f"Running on {num_threads} threads")
-
-    parallel_results = Parallel(n_jobs=num_threads)(
-        delayed(run_one_try)(i, budget, config) for i in tqdm(range(config.num_times_to_run))
-    )
-
-    print(f"Memory usage after parallel processing: {get_memory_usage():.2f} MB")
-
-    results_file = f"{config.RESULTS_DIR}/parallel_results_budget_{budget}_streaming"
-    with open(results_file, "wb") as output:
-        pickle.dump(parallel_results, output, pickle.HIGHEST_PROTOCOL)
-
-    return parallel_results
+def get_memory_usage() -> float:
+    """Gibt den aktuellen Speicherverbrauch in MB zurück."""
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024 / 1024
 
 
-def load_and_process_streaming_results(config: SingleRouterConfig) -> dict:
-    """Load and process streaming results for all budgets."""
-    all_processed_data = {}
-    results_dir = config.RESULTS_DIR
-    budgets = config.budgets
-
-    with open(f"{results_dir}/parallel_results_budget_{budgets[0]}_streaming", "rb") as input_file:
-        sample_results = pickle.load(input_file)
-    num_rounds = len(sample_results[0]["streaming_random_reward"])
-    print(f"Detected {num_rounds} rounds in the data")
-
-    for budget in budgets:
-        with open(f"{results_dir}/parallel_results_budget_{budget}_streaming", "rb") as input_file:
-            parallel_results = pickle.load(input_file)
-
-        num_runs = len(parallel_results)
-
-        streaming_random_reward_runs_arr = np.zeros((num_runs, num_rounds))
-        streaming_bench_reward_runs_arr = np.zeros((num_runs, num_rounds))
-        streaming_cocoma_reward_runs_arr = np.zeros((num_runs, num_rounds))
-        streaming_neural_cocoma_reward_runs_arr = np.zeros((num_runs, num_rounds))
-
-        streaming_random_regret_runs_arr = np.zeros((num_runs, num_rounds))
-        streaming_cocoma_regret_runs_arr = np.zeros((num_runs, num_rounds))
-        streaming_neural_cocoma_regret_runs_arr = np.zeros((num_runs, num_rounds))
-
-        streaming_cocoma_leaves_runs_arr = np.zeros((num_runs, num_rounds))
-        streaming_neural_cocoma_leaves_runs_arr = np.zeros((num_runs, num_rounds))
-
-        for i, entry in enumerate(parallel_results):
-            streaming_random_reward_runs_arr[i] = (
-                pd.Series(entry["streaming_random_reward"]).expanding().mean().values
-            )
-            streaming_bench_reward_runs_arr[i] = (
-                pd.Series(entry["streaming_bench_reward"]).expanding().mean().values
-            )
-            streaming_cocoma_reward_runs_arr[i] = (
-                pd.Series(entry["streaming_cocoma_reward"]).expanding().mean().values
-            )
-            streaming_neural_cocoma_reward_runs_arr[i] = (
-                pd.Series(entry["streaming_neural_cocoma_reward"]).expanding().mean().values
-            )
-
-            streaming_random_regret_runs_arr[i] = np.cumsum(entry["streaming_random_regret"])
-            streaming_cocoma_regret_runs_arr[i] = np.cumsum(entry["streaming_cocoma_regret"])
-            streaming_neural_cocoma_regret_runs_arr[i] = np.cumsum(
-                entry["streaming_neural_cocoma_regret"]
-            )
-
-            streaming_cocoma_leaves_runs_arr[i] = np.array(entry["streaming_cocoma_leaves_count_arr"])
-            streaming_neural_cocoma_leaves_runs_arr[i] = np.array(
-                entry["streaming_neural_cocoma_leaves_count_arr"]
-            )
-
-        all_processed_data[budget] = {
-            "cocomama_avg_reward": np.mean(streaming_cocoma_reward_runs_arr, axis=0),
-            "neural_cocoma_avg_reward": np.mean(streaming_neural_cocoma_reward_runs_arr, axis=0),
-            "random_avg_reward": np.mean(streaming_random_reward_runs_arr, axis=0),
-            "bench_avg_reward": np.mean(streaming_bench_reward_runs_arr, axis=0),
-            "cocomama_std_reward": np.std(streaming_cocoma_reward_runs_arr, axis=0),
-            "neural_cocoma_std_reward": np.std(streaming_neural_cocoma_reward_runs_arr, axis=0),
-            "random_std_reward": np.std(streaming_random_reward_runs_arr, axis=0),
-            "bench_std_reward": np.std(streaming_bench_reward_runs_arr, axis=0),
-            "cocomama_avg_regret": np.mean(streaming_cocoma_regret_runs_arr, axis=0),
-            "neural_cocoma_avg_regret": np.mean(streaming_neural_cocoma_regret_runs_arr, axis=0),
-            "random_avg_regret": np.mean(streaming_random_regret_runs_arr, axis=0),
-            "cocomama_std_regret": np.std(streaming_cocoma_regret_runs_arr, axis=0),
-            "neural_cocoma_std_regret": np.std(streaming_neural_cocoma_regret_runs_arr, axis=0),
-            "random_std_regret": np.std(streaming_random_regret_runs_arr, axis=0),
-            "cocomama_avg_leaves": np.mean(streaming_cocoma_leaves_runs_arr, axis=0),
-            "neural_cocoma_avg_leaves": np.mean(streaming_neural_cocoma_leaves_runs_arr, axis=0),
-            "cocomama_std_leaves": np.std(streaming_cocoma_leaves_runs_arr, axis=0),
-            "neural_cocoma_std_leaves": np.std(streaming_neural_cocoma_leaves_runs_arr, axis=0),
-            "parallel_results": parallel_results,
-        }
-    return all_processed_data
